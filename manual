@@ -1,0 +1,42 @@
+function getManualHtml(company_id) {
+  const row = getManualRow(company_id) || {};
+  let html = '<h4>Manual Data</h4>';
+  html += '<div><label>Contract Type: <input id="contract_type" value="'+(row.contract_type||'')+'"></label></div>';
+  html += '<div><label>LinkedIn Profile: <input id="linkedin_profile" value="'+(row['Linked in profile']||row.linkedin_profile||'')+'"></label></div>';
+  html += '<div><label>Number of Sites: <input id="number_of_sites" value="'+(row['Number of Sites']||row.number_of_sites||'')+'"></label></div>';
+  html += '<div><label>Eligible Headcount: <input id="eligible_headcount" value="'+(row['Eligble Headcount']||row.eligible_headcount||'')+'"></label></div>';
+  html += '<div><label>Competition: <input id="competition" value="'+(row.competition||'')+'"></label></div>';
+  html += '<div><label>Last Visit Date: <input type="date" id="last_visit_date" value="'+(row['Last visit date']?formatDateInput(row['Last visit date']):'')+'"></label></div>';
+  html += '<div><label>Historical Comment (new): <textarea id="hist_comment"></textarea></label></div>';
+  html += '<div style="margin-top:8px;"><button onclick="submitManual()">Save</button></div>';
+  html += `<script>
+    function submitManual() {
+      const updates = {
+        contract_type: document.getElementById('contract_type').value,
+        linkedin_profile: document.getElementById('linkedin_profile').value,
+        number_of_sites: document.getElementById('number_of_sites').value,
+        eligible_headcount: document.getElementById('eligible_headcount').value,
+        competition: document.getElementById('competition').value,
+        last_visit_date: document.getElementById('last_visit_date').value
+      };
+      const comment = document.getElementById('hist_comment').value;
+      if (comment && comment.trim() !== '') {
+        updates['Historical Comments'] = (rowPrevComments() + '\\n' + new Date().toISOString().slice(0,19).replace('T',' ') + ' - ' + comment).trim();
+      }
+      google.script.run.withSuccessHandler(function(){ alert('Saved'); location.reload(); }).upsertManual(document.getElementById('companySelect').value, updates);
+    }
+    function rowPrevComments() {
+      return ${JSON.stringify(row['Historical Comments'] || row.historical_comments || '')};
+    }
+  </script>`;
+  return html;
+}
+
+function formatDateInput(v) {
+  if (!v) return '';
+  const d = new Date(v);
+  const yyyy = d.getFullYear();
+  const mm = ('0' + (d.getMonth()+1)).slice(-2);
+  const dd = ('0' + d.getDate()).slice(-2);
+  return `${yyyy}-${mm}-${dd}`;
+}
