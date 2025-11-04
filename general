@@ -1,0 +1,52 @@
+function getGeneralHtml(company_id) {
+  // Build a list of editable fields and map to sources
+  const fields = [
+    {label:'KAM', key:'KAM', source:'jira'},
+    {label:'FinOps', key:'finops', source:'jira'},
+    {label:'On Ground', key:'On ground', source:'jira'},
+    {label:'KCS', key:'KCS', source:'jira'},
+    {label:'LinkedIn Profile', key:'linkedin_profile', source:'manual'},
+    {label:'Number of Sites', key:'number_of_sites', source:'manual'},
+    {label:'Eligible Headcount', key:'eligible_headcount', source:'manual'},
+    {label:'Competition', key:'competition', source:'manual'},
+    {label:'Last Visit Date', key:'last_visit_date', source:'manual'},
+    {label:'Historical Comments', key:'Historical Comments', source:'manual'}
+  ];
+  let html = '<h4>General Edit</h4>';
+  html += '<div>Select fields to edit:</div>';
+  fields.forEach((f, idx) => {
+    html += `<div><input type="checkbox" id="fld${idx}" data-key="${f.key}" data-source="${f.source}"> <label for="fld${idx}">${f.label}</label></div>`;
+  });
+  html += '<div id="generalEditFields" style="margin-top:12px;"></div>';
+  html += `<div style="margin-top:8px;"><button onclick="showFields()">Show Selected Fields</button> <button onclick="submitGeneral()">Save All</button></div>`;
+  html += `<script>
+    let fields = ${JSON.stringify(fields)};
+    function showFields() {
+      const container = document.getElementById('generalEditFields');
+      container.innerHTML = '';
+      fields.forEach((f, idx) => {
+        if (document.getElementById('fld'+idx).checked) {
+          container.innerHTML += '<div style="margin-bottom:8px;"><label>'+f.label+': <input id="input_'+idx+'"></label></div>';
+        }
+      });
+    }
+    function submitGeneral() {
+      const updatesBySource = {};
+      fields.forEach((f, idx) => {
+        if (document.getElementById('fld'+idx).checked) {
+          const val = document.getElementById('input_'+idx).value;
+          if (!updatesBySource[f.source]) updatesBySource[f.source] = {};
+          updatesBySource[f.source][f.key] = val;
+        }
+      });
+      // send per-source updates
+      const cid = document.getElementById('companySelect').value;
+      Object.keys(updatesBySource).forEach(src => {
+        google.script.run.withSuccessHandler(function(){ /* noop */ }).updateMultipleFields(cid, updatesBySource[src], src);
+      });
+      alert('Save requested. Changes logged.');
+      location.reload();
+    }
+  </script>`;
+  return html;
+}
