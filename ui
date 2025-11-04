@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+      :root {
+        --brand: #2563eb;
+        --brand-dark: #1d4ed8;
+        --muted: #64748b;
+        --muted-light: #94a3b8;
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --border: #e2e8f0;
+        --success: #10b981;
+        --warning: #f59e0b;
+        --error: #ef4444;
+      }
+      
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      
+      body {
+        font-family: 'Inter', 'Segoe UI', Roboto, Arial, sans-serif;
+        background: var(--bg);
+        margin: 0;
+        color: #1e293b;
+        line-height: 1.5;
+      }
+      
+      .header {
+        background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+        color: white;
+        padding: 24px 32px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      }
+      
+      .header h2 {
+        margin: 0 0 8px 0;
+        font-weight: 700;
+        font-size: 24px;
+      }
+      
+      .header .subtitle {
+        opacity: 0.9;
+        font-size: 14px;
+      }
+      
+      .topbar {
+        display: flex;
+        gap: 16px;
+        padding: 16px 32px;
+        background: #fff;
+        align-items: center;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        border-bottom: 1px solid var(--border);
+        flex-wrap: wrap;
+      }
+      
+      .tabs {
+        display: flex;
+        gap: 4px;
+        background: #f1f5f9;
+        padding: 4px;
+        border-radius: 8px;
+      }
+      
+      .tab {
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        background: transparent;
+        border: none;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        color: var(--muted);
+      }
+      
+      .tab:hover {
+        background: rgba(255, 255, 255, 0.7);
+        color: var(--brand);
+      }
+      
+      .tab.active {
+        background: white;
+        color: var(--brand);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      
+      .controls {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        margin-left: auto;
+        flex-wrap: wrap;
+      }
+      
+      .control-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      
+      .control-label {
+        font-size: 13px;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      
+      select, input[type="text"], input[type="date"], input[type="number"], textarea {
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        min-width: 160px;
+        font-size: 14px;
+        transition: border-color 0.2s ease;
+      }
+      
+      select:focus, input:focus, textarea:focus {
+        outline: none;
+        border-color: var(--brand);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+      }
+      
+      button {
+        background: var(--brand);
+        color: #fff;
+        padding: 8px 16px;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+      }
+      
+      button:hover {
+        background: var(--brand-dark);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      }
+      
+      button.secondary {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      
+      button.secondary:hover {
+        background: #f8fafc;
+        color: var(--brand);
+        border-color: var(--brand);
+      }
+      
+      .container {
+        padding: 24px 32px;
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      
+      .panel {
+        background: var(--card);
+        padding: 24px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--border);
+      }
+      
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+      
+      th, td {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+      }
+      
+      th {
+        background: #f8fafc;
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      
+      tr:hover {
+        background: #f8fafc;
+      }
+      
+      .muted {
+        color: var(--muted);
+        font-size: 14px;
+      }
+      
+      .small {
+        font-size: 13px;
+      }
+      
+      .right {
+        margin-left: auto;
+      }
+      
+      .note {
+        color: var(--muted);
+        margin-top: 8px;
+        font-size: 13px;
+      }
+      
+      .form-row {
+        margin-bottom: 16px;
+      }
+      
+      .form-row label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 500;
+        color: #374151;
+      }
+      
+      .loading {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 40px;
+        color: var(--muted);
+      }
+      
+      .spinner {
+        border: 2px solid #f3f3f3;
+        border-top: 2px solid var(--brand);
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        animation: spin 1s linear infinite;
+        margin-right: 10px;
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      @media (max-width: 768px) {
+        .topbar {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        
+        .controls {
+          margin-left: 0;
+          width: 100%;
+          justify-content: space-between;
+        }
+        
+        .container {
+          padding: 16px;
+        }
+        
+        .header, .topbar {
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <h2>Company Data Editor</h2>
+      <div class="subtitle">Edit SPOCs, Manual Data, and General fields. All changes are audited in history log.</div>
+    </div>
+
+    <div class="topbar">
+      <div class="tabs">
+        <div id="tab-spocs" class="tab active" onclick="showTab('spocs')">SPOCs Management</div>
+        <div id="tab-manual" class="tab" onclick="showTab('manual')">Manual Data</div>
+        <div id="tab-general" class="tab" onclick="showTab('general')">General Editor</div>
+      </div>
+
+      <div class="controls">
+        <div class="control-group">
+          <span class="control-label">Group</span>
+          <select id="groupSelect" onchange="onGroupChange()">
+            <option value="">Loading groups...</option>
+          </select>
+        </div>
+        
+        <div class="control-group">
+          <span class="control-label">Company</span>
+          <select id="companySelect" onchange="onCompanyChange()" disabled>
+            <option value="">-- Select group first --</option>
+          </select>
+        </div>
+        
+        <button class="secondary" onclick="refreshLists()">
+          <span>↻</span> Refresh
+        </button>
+      </div>
+    </div>
+
+    <div class="container">
+      <div id="contentArea" class="panel">
+        <div class="loading">
+          <div class="spinner"></div>
+          <span>Loading application...</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+  let companies = [];
+  let grouped = {};
+  let selectedCompany = '';
+  let selectedGroup = '';
+  let currentTab = 'spocs';
+
+  // SPOC Management Functions
+  window.validateSPOCForm = function(name, position, mobile, email) {
+    const errors = [];
+    if (!name || name.trim() === '') errors.push('Name is required');
+    if (!position || position.trim() === '') errors.push('Position is required');
+    if (!mobile || mobile.trim() === '') errors.push('Mobile is required');
+    if (!email || email.trim() === '') errors.push('Email is required');
+    if (email && !email.includes('@')) errors.push('Please enter a valid email address');
+    return errors;
+  };
+
+  window.showMessage = function(elementId, message, isError = false) {
+    const messageDiv = document.getElementById(elementId);
+    if (messageDiv) {
+      messageDiv.innerHTML = message;
+      messageDiv.style.color = isError ? '#d32f2f' : '#27ae60';
+      messageDiv.style.display = 'block';
+      setTimeout(() => {
+        messageDiv.style.display = 'none';
+      }, 5000);
+    }
+  };
+
+  window.addNewSPOC = function() {
+    const name = document.getElementById('spocName')?.value || '';
+    const position = document.getElementById('spocPosition')?.value || '';
+    const mobile = document.getElementById('spocMobile')?.value || '';
+    const email = document.getElementById('spocEmail')?.value || '';
+    const status = document.getElementById('spocStatus')?.value || 'Active';
+    
+    const errors = window.validateSPOCForm(name, position, mobile, email);
+    if (errors.length > 0) {
+      window.showMessage('spocMessage', 'Please fix the following errors: ' + errors.join(', '), true);
+      return;
+    }
+    
+    const payload = {
+      name: name.trim(),
+      position: position.trim(),
+      mobile: mobile.trim(),
+      email: email.trim(),
+      status: status
+    };
+    
+    // Get group_id and company_id from the selected group/company
+    if (selectedGroup) {
+      // Find the group to get group_id
+      const companiesInGroup = companies.filter(c => c.group_name === selectedGroup);
+      if (companiesInGroup.length > 0) {
+        payload.group_id = companiesInGroup[0].group_id || '';
+      }
+    }
+    
+    if (selectedCompany) {
+      payload.company_id = selectedCompany;
+    }
+    
+    google.script.run
+      .withSuccessHandler(function(result) {
+        window.showMessage('spocMessage', 'SPOC added successfully!', false);
+        // Clear form
+        document.getElementById('spocName').value = '';
+        document.getElementById('spocPosition').value = '';
+        document.getElementById('spocMobile').value = '';
+        document.getElementById('spocEmail').value = '';
+        document.getElementById('spocStatus').value = 'Active';
+        // Reload the SPOCs list
+        setTimeout(() => {
+          window.reloadCurrentTab();
+        }, 1000);
+      })
+      .withFailureHandler(function(error) {
+        window.showMessage('spocMessage', 'Error adding SPOC: ' + error.message, true);
+      })
+      .addOrUpdateSPOC(payload);
+  };
+
+  window.editSPOC = function(index) {
+    const allEditForms = document.querySelectorAll('[id^="spoc-edit-"]');
+    allEditForms.forEach(form => form.style.display = 'none');
+    const editForm = document.getElementById('spoc-edit-' + index);
+    if (editForm) {
+      editForm.style.display = 'table-row';
+      editForm.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  window.cancelEdit = function(index) {
+    const editForm = document.getElementById('spoc-edit-' + index);
+    if (editForm) editForm.style.display = 'none';
+  };
+
+  window.saveSPOC = function(contactId, index) {
+    const name = document.getElementById('editName-' + index)?.value || '';
+    const position = document.getElementById('editPosition-' + index)?.value || '';
+    const mobile = document.getElementById('editMobile-' + index)?.value || '';
+    const email = document.getElementById('editEmail-' + index)?.value || '';
+    const status = document.getElementById('editStatus-' + index)?.value || 'Active';
+    
+    const errors = window.validateSPOCForm(name, position, mobile, email);
+    if (errors.length > 0) {
+      window.showMessage('editMessage-' + index, 'Please fix the following errors: ' + errors.join(', '), true);
+      return;
+    }
+    
+    const payload = {
+      contact_id: contactId,
+      name: name.trim(),
+      position: position.trim(),
+      mobile: mobile.trim(),
+      email: email.trim(),
+      status: status
+    };
+    
+    google.script.run
+      .withSuccessHandler(function(result) {
+        window.showMessage('editMessage-' + index, 'SPOC updated successfully!', false);
+        setTimeout(() => {
+          window.reloadCurrentTab();
+        }, 1000);
+      })
+      .withFailureHandler(function(error) {
+        window.showMessage('editMessage-' + index, 'Error updating SPOC: ' + error.message, true);
+      })
+      .addOrUpdateSPOC(payload);
+  };
+
+  // Manual Data Functions
+  window.submitManual = function() {
+    if (!selectedCompany) {
+      window.showMessage('manualMessage', 'Please select a company first.', true);
+      return;
+    }
+
+    const contractType = document.getElementById('contract_type')?.value || '';
+    const linkedinProfile = document.getElementById('linkedin_profile')?.value || '';
+    const numberOfSites = document.getElementById('number_of_sites')?.value || '';
+    const eligibleHeadcount = document.getElementById('eligible_headcount')?.value || '';
+    const competition = document.getElementById('competition')?.value || '';
+    const lastVisitDate = document.getElementById('last_visit_date')?.value || '';
+    const newComment = document.getElementById('new_comment')?.value || '';
+    
+    const errors = [];
+    if (!contractType.trim()) errors.push('Contract Type is required');
+    if (!linkedinProfile.trim()) errors.push('LinkedIn Profile is required');
+    if (!numberOfSites.trim()) errors.push('Number of Sites is required');
+    if (!eligibleHeadcount.trim()) errors.push('Eligible Headcount is required');
+    if (!competition.trim()) errors.push('Competition is required');
+    if (!lastVisitDate.trim()) errors.push('Last Visit Date is required');
+    
+    if (errors.length > 0) {
+      window.showMessage('manualMessage', 'Please fix the following errors: ' + errors.join(', '), true);
+      return;
+    }
+    
+    const updates = {
+      contract_type: contractType,
+      linkedin_profile: linkedinProfile,
+      number_of_sites: numberOfSites,
+      eligible_headcount: eligibleHeadcount,
+      competition: competition,
+      last_visit_date: lastVisitDate
+    };
+    
+    // Add new comment to historical comments if provided
+    if (newComment.trim()) {
+      const currentHistoricalComments = document.getElementById('historical_comments')?.value || '';
+      const timestamp = new Date().toISOString().slice(0,19).replace('T',' ');
+      updates.historical_comments = (currentHistoricalComments + '\n' + timestamp + ' - ' + newComment.trim()).trim();
+    }
+    
+    google.script.run
+      .withSuccessHandler(function(result) { 
+        if (result.status === 'no-changes') {
+          window.showMessage('manualMessage', 'No changes detected to save.', true);
+        } else {
+          window.showMessage('manualMessage', 'Manual data saved successfully!', false);
+          document.getElementById('new_comment').value = '';
+          setTimeout(() => {
+            window.reloadCurrentTab();
+          }, 1000);
+        }
+      })
+      .withFailureHandler(function(error) {
+        window.showMessage('manualMessage', 'Error saving data: ' + error.message, true);
+      })
+      .upsertManual(selectedCompany, updates);
+  };
+
+  // General Editor Functions
+  window.showFields = function() {
+    const container = document.getElementById('generalEditFields');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    container.style.padding = '0';
+    container.style.background = 'transparent';
+    container.style.border = 'none';
+    
+    let hasSelection = false;
+    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    
+    checkboxes.forEach((checkbox, idx) => {
+      if (checkbox.checked) {
+        hasSelection = true;
+      }
+    });
+    
+    if (!hasSelection) {
+      container.innerHTML = '<div style="color: #666; text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">Please select at least one field to edit</div>';
+      return;
+    }
+    
+    container.style.padding = '20px';
+    container.style.background = '#f8f9fa';
+    container.style.borderRadius = '8px';
+    container.style.border = '1px solid #e1e8ed';
+    
+    checkboxes.forEach((checkbox, idx) => {
+      if (checkbox.checked) {
+        const field = window.fieldsData ? window.fieldsData[idx] : null;
+        if (!field) return;
+        
+        const inputType = field.key === 'last_visit_date' ? 'date' : 
+                         (field.key === 'number_of_sites' || field.key === 'eligible_headcount' ? 'number' : 'text');
+        const inputHeight = field.key === 'Historical Comments' ? '80px' : 'auto';
+        const inputElement = field.key === 'Historical Comments' ? 
+          `<textarea id="input_${idx}" style="width: 100%; max-width: 500px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; height: ${inputHeight};" placeholder="Enter new value...">${field.value || ''}</textarea>` :
+          `<input type="${inputType}" id="input_${idx}" value="${field.value || ''}" style="width: 100%; max-width: 400px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" placeholder="Enter new value...">`;
+        
+        container.innerHTML += `
+          <div style="margin-bottom:20px; padding: 15px; background: white; border-radius: 6px; border: 1px solid #e1e8ed;">
+            <label style="display:block; margin-bottom:8px; font-weight:600; color: #2c3e50;">${field.label}</label>
+            ${inputElement}
+            <div style="font-size: 12px; color: #666; margin-top: 5px;">Source: ${field.source}</div>
+          </div>
+        `;
+      }
+    });
+  };
+
+  window.submitGeneral = function() {
+    if (!selectedCompany) {
+      window.showMessage('generalMessage', 'Please select a company first.', true);
+      return;
+    }
+
+    const updatesBySource = {};
+    let hasSelectedFields = false;
+    
+    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach((checkbox, idx) => {
+      if (checkbox.checked) {
+        hasSelectedFields = true;
+        const field = window.fieldsData ? window.fieldsData[idx] : null;
+        if (!field) return;
+        
+        const inputElement = document.getElementById('input_' + idx);
+        if (inputElement) {
+          const val = inputElement.value;
+          if (!updatesBySource[field.source]) updatesBySource[field.source] = {};
+          updatesBySource[field.source][field.key] = val;
+        }
+      }
+    });
+    
+    if (!hasSelectedFields) {
+      window.showMessage('generalMessage', 'Please select at least one field to save.', true);
+      return;
+    }
+    
+    const totalSaves = Object.keys(updatesBySource).length;
+    if (totalSaves === 0) {
+      window.showMessage('generalMessage', 'Please fill in the values for the selected fields.', true);
+      return;
+    }
+    
+    let saveCount = 0;
+    let hasErrors = false;
+    
+    Object.keys(updatesBySource).forEach(src => {
+      google.script.run
+        .withSuccessHandler(function() { 
+          saveCount++;
+          if (saveCount === totalSaves && !hasErrors) {
+            window.showMessage('generalMessage', 'All changes saved successfully!', false);
+            setTimeout(() => {
+              window.reloadCurrentTab();
+            }, 1000);
+          }
+        })
+        .withFailureHandler(function(error) {
+          hasErrors = true;
+          window.showMessage('generalMessage', 'Error saving ' + src + ' fields: ' + error.message, true);
+        })
+        .updateMultipleFields(selectedCompany, updatesBySource[src], src);
+    });
+  };
+
+  // Existing functions
+  function init() {
+    const groupSelect = document.getElementById('groupSelect');
+    const companySelect = document.getElementById('companySelect');
+    groupSelect.innerHTML = '<option value="">Loading groups...</option>';
+    companySelect.innerHTML = '<option value="">-- Select group first --</option>';
+    companySelect.disabled = true;
+
+    google.script.run
+      .withSuccessHandler(function(list){
+        companies = list || [];
+        grouped = {};
+        companies.forEach(c => {
+          const g = c.group_name || 'UNGROUPED';
+          if (!grouped[g]) grouped[g] = [];
+          grouped[g].push(c);
+        });
+        
+        const gs = Object.keys(grouped).filter(g => g && g !== 'UNGROUPED').sort();
+        groupSelect.innerHTML = '<option value="">-- Select a Group --</option>';
+        gs.forEach(g => {
+          const opt = document.createElement('option');
+          opt.value = g;
+          opt.text = g + ' (' + grouped[g].length + ' companies)';
+          groupSelect.appendChild(opt);
+        });
+        
+        if (gs.length === 1) {
+          groupSelect.value = gs[0];
+          onGroupChange();
+        }
+        
+        selectedGroup = groupSelect.value || '';
+        selectedCompany = '';
+        loadTab('spocs');
+      })
+      .withFailureHandler(function(err){
+        groupSelect.innerHTML = '<option value="">Error loading groups</option>';
+        document.getElementById('contentArea').innerHTML = 
+          '<div class="muted" style="padding: 20px; text-align: center;">' +
+          'Unable to load groups. Please ensure a sheet named <strong>company_db</strong> exists with columns: company_id, company_name, group_name.' +
+          '<br><br>Error: ' + (err && err.message ? err.message : 'Unknown error') +
+          '</div>';
+      })
+      .getCompanyList();
+  }
+
+  function refreshLists() { 
+    document.getElementById('contentArea').innerHTML = '<div class="loading"><div class="spinner"></div><span>Refreshing data...</span></div>';
+    init(); 
+  }
+
+  function populateCompanySelect(groupName) {
+    const cs = document.getElementById('companySelect');
+    cs.innerHTML = '<option value="">-- Select company --</option>';
+    const arr = groupName ? (grouped[groupName] || []) : [];
+    arr.sort((a,b)=> (a.company_name||'').localeCompare(b.company_name||'')).forEach(c => {
+      const opt = document.createElement('option'); 
+      opt.value = c.company_id; 
+      opt.text = c.company_name;
+      cs.appendChild(opt);
+    });
+    cs.disabled = arr.length === 0;
+  }
+
+  function onGroupChange() {
+    selectedGroup = document.getElementById('groupSelect').value || '';
+    selectedCompany = '';
+    document.getElementById('companySelect').value = '';
+    populateCompanySelect(selectedGroup);
+    loadTab(currentTab);
+  }
+
+  function onCompanyChange() {
+    selectedCompany = document.getElementById('companySelect').value || '';
+    loadTab(currentTab);
+  }
+
+  function showTab(name) {
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    currentTab = name;
+    loadTab(name);
+  }
+
+  function loadTab(name) {
+    const content = document.getElementById('contentArea');
+    content.innerHTML = '<div class="loading"><div class="spinner"></div><span>Loading ' + name + '...</span></div>';
+    
+    if (name === 'spocs') {
+      google.script.run
+        .withSuccessHandler(function(html){ content.innerHTML = html; })
+        .withFailureHandler(function(err){ 
+          content.innerHTML = '<div class="muted">Error loading SPOCs: '+(err && err.message ? err.message : '')+'</div>'; 
+        })
+        .getSpocsHtml(selectedCompany, selectedGroup);
+    } else if (name === 'manual') {
+      if (!selectedCompany) {
+        content.innerHTML = '<div class="muted">Please select a specific company to manage manual data.</div>';
+        return;
+      }
+      google.script.run
+        .withSuccessHandler(function(html){ content.innerHTML = html; })
+        .withFailureHandler(function(err){ 
+          content.innerHTML = '<div class="muted">Error loading Manual Data: '+(err && err.message ? err.message : '')+'</div>'; 
+        })
+        .getManualHtml(selectedCompany);
+    } else if (name === 'general') {
+      if (!selectedCompany) {
+        content.innerHTML = '<div class="muted">Please select a specific company to perform general edits.</div>';
+        return;
+      }
+      google.script.run
+        .withSuccessHandler(function(html){ 
+          content.innerHTML = html; 
+          // Store fields data for general editor
+          setTimeout(() => {
+            const fieldsScript = content.querySelector('script');
+            if (fieldsScript && fieldsScript.textContent.includes('fields = ')) {
+              try {
+                const fieldsMatch = fieldsScript.textContent.match(/fields = (\[.*?\]);/);
+                if (fieldsMatch) {
+                  window.fieldsData = JSON.parse(fieldsMatch[1]);
+                }
+              } catch(e) {
+                console.error('Error parsing fields data:', e);
+              }
+            }
+          }, 100);
+        })
+        .withFailureHandler(function(err){ 
+          content.innerHTML = '<div class="muted">Error loading General Editor: '+(err && err.message ? err.message : '')+'</div>'; 
+        })
+        .getGeneralHtml(selectedCompany);
+    }
+  }
+
+  window.reloadCurrentTab = function() {
+    loadTab(currentTab);
+  };
+
+  document.addEventListener('DOMContentLoaded', init);
+</script>
+  </body>
+</html>
