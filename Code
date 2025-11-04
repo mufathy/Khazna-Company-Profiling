@@ -1,0 +1,1029 @@
+/************************************************************
+ * Company Data Editor - Full Code.gs (updated, robust)
+ ************************************************************/
+
+const SPOCS_SHEET = 'SPOCs';
+const MANUAL_SHEET = 'manual_db';
+const JIRA_SHEET = 'jira_db';
+const COMPANY_LOOKUP_SHEET = 'company_db';
+const HISTORY_SHEET = 'history_log';
+
+/* ---------- doGet ---------- */
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('ui')
+    .setTitle('Company Data Editor')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/* ---------- Utilities ---------- */
+
+// Safely read sheet as objects; returns [] if sheet missing or empty
+function _readSheetAsObjects(sheetName) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = ss.getSheetByName(sheetName);
+    if (!sh) return [];
+    const data = sh.getDataRange().getValues();
+    if (!data || data.length < 1) return [];
+    const headers = data[0].map(h => String(h).trim());
+    const rows = data.slice(1);
+    return rows
+      .filter(r => r.join('').trim() !== '')
+      .map(r => {
+        const obj = {};
+        for (let i = 0; i < headers.length; i++) {
+          if (headers[i]) obj[headers[i]] = r[i];
+        }
+        return obj;
+      });
+  } catch (e) {
+    return [];
+  }
+}
+
+// Append row: will add missing headers if object contains keys not present
+function _appendRow(sheetName, obj) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(sheetName);
+  if (!sh) {
+    sh = ss.insertSheet(sheetName);
+    // create header row from object's keys (best-effort)
+    const keys = Object.keys(obj);
+    if (keys.length === 0) keys.push('created_at');
+    sh.getRange(1, 1, 1, keys.length).setValues([keys]);
+  }
+  // get headers
+  let headers = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0];
+  if (headers.length === 1 && headers[0] === '') headers = [];
+  // add any missing headers
+  const objKeys = Object.keys(obj);
+  const missing = objKeys.filter(k => headers.indexOf(k) === -1);
+  if (missing.length > 0) {
+    headers = headers.concat(missing);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+  // build row matching headers
+  const row = headers.map(h => (obj[h] !== undefined ? obj[h] : ''));
+  sh.appendRow(row);
+}
+
+// Update row matching keyField==keyValue; returns true if updated
+function _updateRow(sheetName, keyField, keyValue, obj) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(sheetName);
+  if (!sh) return false;
+  const data = sh.getDataRange().getValues();
+  if (!data || data.length < 1) return false;
+  let headers = data[0].map(h => String(h));
+  const keyIdx = headers.indexOf(keyField);
+  if (keyIdx === -1) return false;
+  for (let r = 1; r < data.length; r++) {
+    if (String(data[r][keyIdx]) === String(keyValue)) {
+      // ensure headers contain all keys
+      const objKeys = Object.keys(obj);
+      const missing = objKeys.filter(k => headers.indexOf(k) === -1);
+      if (missing.length > 0) {
+        headers = headers.concat(missing);
+        sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+        // extend data[r] with empty values for new headers
+        while (data[r].length < headers.length) data[r].push('');
+      }
+      // apply updates
+      objKeys.forEach(k => {
+        const idx = headers.indexOf(k);
+        if (idx !== -1) data[r][idx] = obj[k];
+      });
+      sh.getRange(r + 1, 1, 1, data[r].length).setValues([data[r]]);
+      return true;
+    }
+  }
+  return false;
+}
+
+/* ---------- Company lookup ---------- */
+
+function getCompanyList() {
+  // attempt to read company_db sheet; if missing return []
+  const rows = _readSheetAsObjects(COMPANY_LOOKUP_SHEET);
+  // normalize keys
+  return rows.map(r => ({
+    company_id: r['company_id'] || r['Company ID'] || '',
+    company_name: r['company_name'] || r['Company Name'] || '',
+    group_name: r['group_name'] || r['Group'] || '',
+    group_id: r['group_id'] || r['Group ID'] || ''
+  }));
+}
+
+/* ---------- SPOCs ---------- */
+
+// Get SPOCs, filtered by company_id or group_name. If both empty return [] (no heavy listing).
+function getSPOCs(company_id, group_name) {
+  const all = _readSheetAsObjects(SPOCS_SHEET);
+  company_id = company_id ? String(company_id) : '';
+  group_name = group_name ? String(group_name) : '';
+
+  if (company_id) {
+    return all.filter(r => String(r.company_id) === String(company_id));
+  }
+  if (group_name) {
+    // find company ids in that group (from lookup)
+    const cl = _readSheetAsObjects(COMPANY_LOOKUP_SHEET);
+    const ids = cl.filter(x => String(x.group_name) === String(group_name)).map(x => String(x.company_id));
+    if (ids.length === 0) return [];
+    return all.filter(r => ids.indexOf(String(r.company_id)) !== -1);
+  }
+  // both empty -> return empty to avoid heavy listing
+  return [];
+}
+
+function getSpocById(contactId) {
+  const all = _readSheetAsObjects(SPOCS_SHEET);
+  return all.find(r => String(r.contact_id) === String(contactId)) || null;
+}
+
+// Add or update a SPOC; logs history per-field on edit; returns result
+function addOrUpdateSPOC(payload) {
+  // ensure history sheet exists and has headers (appendHistory handles creation)
+  // ensure SPOCs sheet header presence by appending row creation if missing
+  if (!payload) throw new Error('Missing payload');
+
+  // prepare current row if editing
+  let before = null;
+  if (payload.contact_id) before = getSpocById(payload.contact_id);
+
+  // Update if contact_id exists
+  if (payload.contact_id && before) {
+    // update row
+    const updated = _updateRow(SPOCS_SHEET, 'contact_id', payload.contact_id, payload);
+    // detect field-level changes and append history rows
+    if (updated) {
+      Object.keys(payload).forEach(k => {
+        if (k === 'contact_id') return;
+        const oldVal = before[k] !== undefined ? String(before[k]) : '';
+        const newVal = payload[k] !== undefined ? String(payload[k]) : '';
+        if (oldVal !== newVal) {
+          appendHistory({
+            timestamp: new Date(),
+            user: Session.getActiveUser().getEmail() || '',
+            company_id: payload.company_id || before.company_id || '',
+            company_name: '',
+            field: 'spoc_' + k,
+            old_value: oldVal,
+            new_value: newVal,
+            source_sheet: SPOCS_SHEET,
+            action: 'edit',
+            contact_id: payload.contact_id
+          });
+        }
+      });
+    }
+    return { status: 'updated' };
+  } else {
+    // Append new spoc row
+    const contactId = 'SPOC-' + new Date().getTime();
+    payload.contact_id = contactId;
+    // add metadata
+    payload.created_by = Session.getActiveUser().getEmail() || '';
+    payload.created_at = new Date();
+    _appendRow(SPOCS_SHEET, payload);
+
+    // history log: one entry with JSON of new fields
+    appendHistory({
+      timestamp: new Date(),
+      user: Session.getActiveUser().getEmail() || '',
+      company_id: payload.company_id || '',
+      company_name: '',
+      field: 'spoc_create',
+      old_value: '',
+      new_value: JSON.stringify({
+        name: payload.name || '',
+        position: payload.position || '',
+        mobile: payload.mobile || '',
+        email: payload.email || '',
+        status: payload.status || ''
+      }),
+      source_sheet: SPOCS_SHEET,
+      action: 'create',
+      contact_id: contactId
+    });
+
+    return { status: 'created', contact_id: contactId };
+  }
+}
+
+/* ---------- Manual data ---------- */
+
+function getManualData(company_id) {
+  if (!company_id) return [];
+  const all = _readSheetAsObjects(MANUAL_SHEET);
+  return all.filter(r => String(r.company_id) === String(company_id));
+}
+
+function getManualRow(company_id) {
+  const data = getManualData(company_id);
+  return data.length > 0 ? data[0] : null;
+}
+
+// Upsert manual row (light version - used by UI later)
+function upsertManual(company_id, updates) {
+  if (!company_id) throw new Error('company_id required');
+  // Find existing row
+  const all = _readSheetAsObjects(MANUAL_SHEET);
+  const existing = all.find(r => String(r.company_id) === String(company_id));
+  
+  // Check if there are actual changes
+  let hasChanges = false;
+  if (existing) {
+    for (const key in updates) {
+      const oldVal = String(existing[key] || '');
+      const newVal = String(updates[key] || '');
+      if (oldVal !== newVal && key !== 'historical_comments') {
+        hasChanges = true;
+        break;
+      }
+    }
+  } else {
+    hasChanges = true; // New entry always has changes
+  }
+
+  if (!hasChanges) {
+    return { status: 'no-changes' };
+  }
+
+  if (!existing) {
+    const obj = Object.assign({ company_id: company_id, created_by: Session.getActiveUser().getEmail(), created_at: new Date() }, updates);
+    _appendRow(MANUAL_SHEET, obj);
+    // log each field
+    Object.keys(updates).forEach(f => {
+      if (f !== 'historical_comments') {
+        appendHistory({
+          timestamp: new Date(),
+          user: Session.getActiveUser().getEmail() || '',
+          company_id: company_id,
+          company_name: '',
+          field: f,
+          old_value: '',
+          new_value: '' + updates[f],
+          source_sheet: MANUAL_SHEET,
+          action: 'create'
+        });
+      }
+    });
+    return { status: 'created' };
+  } else {
+    // update existing row
+    _updateRow(MANUAL_SHEET, 'company_id', company_id, updates);
+    Object.keys(updates).forEach(f => {
+      if (f !== 'historical_comments') {
+        const oldVal = String(existing[f] || '');
+        const newVal = String(updates[f] || '');
+        if (oldVal !== newVal) {
+          appendHistory({
+            timestamp: new Date(),
+            user: Session.getActiveUser().getEmail() || '',
+            company_id: company_id,
+            company_name: '',
+            field: f,
+            old_value: oldVal,
+            new_value: newVal,
+            source_sheet: MANUAL_SHEET,
+            action: 'update'
+          });
+        }
+      }
+    });
+    return { status: 'updated' };
+  }
+}
+
+/* ---------- General update (multi-field) ---------- */
+
+function updateMultipleFields(company_id, updates, source) {
+  // source = 'manual' or 'jira'
+  if (!company_id) throw new Error('company_id required');
+  if (!updates || Object.keys(updates).length === 0) return { status: 'no-op' };
+  if (source === 'manual') return upsertManual(company_id, updates);
+  if (source === 'jira') {
+    // Write to jira sheet similarly
+    const all = _readSheetAsObjects(JIRA_SHEET);
+    const existing = all.find(r => String(r.company_id) === String(company_id));
+    if (!existing) {
+      const obj = Object.assign({ company_id: company_id, created_by: Session.getActiveUser().getEmail(), created_at: new Date() }, updates);
+      _appendRow(JIRA_SHEET, obj);
+      Object.keys(updates).forEach(f => {
+        appendHistory({
+          timestamp: new Date(),
+          user: Session.getActiveUser().getEmail() || '',
+          company_id: company_id,
+          company_name: '',
+          field: f,
+          old_value: '',
+          new_value: '' + updates[f],
+          source_sheet: JIRA_SHEET,
+          action: 'create'
+        });
+      });
+      return { status: 'created' };
+    } else {
+      _updateRow(JIRA_SHEET, 'company_id', company_id, updates);
+      Object.keys(updates).forEach(f => {
+        const oldVal = String(existing[f] || '');
+        const newVal = String(updates[f] || '');
+        if (oldVal !== newVal) {
+          appendHistory({
+            timestamp: new Date(),
+            user: Session.getActiveUser().getEmail() || '',
+            company_id: company_id,
+            company_name: '',
+            field: f,
+            old_value: oldVal,
+            new_value: newVal,
+            source_sheet: JIRA_SHEET,
+            action: 'update'
+          });
+        }
+      });
+      return { status: 'updated' };
+    }
+  }
+  throw new Error('Unknown source: ' + source);
+}
+
+/* ---------- History ---------- */
+
+function appendHistory(obj) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(HISTORY_SHEET);
+  const desiredHeaders = ['timestamp', 'user', 'company_id', 'company_name', 'field', 'old_value', 'new_value', 'source_sheet', 'action', 'contact_id'];
+  if (!sh) {
+    sh = ss.insertSheet(HISTORY_SHEET);
+    sh.getRange(1, 1, 1, desiredHeaders.length).setValues([desiredHeaders]);
+  }
+  // ensure headers present (append missing)
+  let existing = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0];
+  if (!existing || (existing.length === 1 && existing[0] === '')) {
+    existing = [];
+  }
+  const missing = desiredHeaders.filter(h => existing.indexOf(h) === -1);
+  if (missing.length > 0) {
+    const newHeaders = existing.concat(missing);
+    sh.getRange(1, 1, 1, newHeaders.length).setValues([newHeaders]);
+    existing = newHeaders;
+  }
+  // build row according to existing headers
+  const row = existing.map(h => {
+    if (obj[h] === undefined) {
+      if (h === 'timestamp') return new Date();
+      return '';
+    }
+    return obj[h];
+  });
+  sh.appendRow(row);
+}
+
+/* ---------- HTML Renderers ---------- */
+
+function getSpocsHtml(company_id, group_name) {
+  // Only show SPOCs table if a group or company is selected
+  const hasSelection = company_id || group_name;
+  const spocs = hasSelection ? getSPOCs(company_id, group_name) : [];
+  
+  let html = '<h4>SPOCs Management</h4>';
+  
+  if (!hasSelection) {
+    html += `
+      <div style="text-align: center; padding: 40px; color: #666; background: #fafafa; border-radius: 8px; margin-bottom: 20px;">
+        <p>Please select a group from the dropdown above to view and manage SPOCs.</p>
+        <p>This helps maintain optimal performance by only loading data when needed.</p>
+      </div>
+    `;
+    return html;
+  }
+  
+  // Show current filter context
+  if (group_name) {
+    html += `<div style="background: #e3f2fd; padding: 12px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #2196f3;">
+      <strong>Viewing SPOCs for Group:</strong> ${group_name}
+    </div>`;
+  } else if (company_id) {
+    const companies = getCompanyList();
+    const company = companies.find(c => c.company_id === company_id);
+    html += `<div style="background: #e3f2fd; padding: 12px; border-radius: 6px; margin-bottom: 20px; border-left: 4px solid #2196f3;">
+      <strong>Viewing SPOCs for Company:</strong> ${company ? company.company_name : company_id}
+    </div>`;
+  }
+  
+  // Add New SPOC Form
+  html += `
+    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 25px; border: 1px solid #e1e8ed;">
+      <h5 style="margin-bottom: 15px; color: #2c3e50;">Add New SPOC</h5>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">Name *</label>
+          <input type="text" id="spocName" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">Position *</label>
+          <input type="text" id="spocPosition" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">Mobile *</label>
+          <input type="text" id="spocMobile" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">Email *</label>
+          <input type="email" id="spocEmail" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">Status *</label>
+          <select id="spocStatus" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+          </select>
+        </div>
+      </div>
+      <button onclick="addNewSPOC()" style="margin-top: 15px; padding: 10px 20px; background: #007cba; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Add New SPOC</button>
+      <div id="spocMessage" style="margin-top: 10px; font-size: 14px; display: none;"></div>
+    </div>
+  `;
+
+  // SPOCs Table - Editable Table View (only show if we have selection)
+  if (spocs.length === 0) {
+    html += '<div style="text-align: center; padding: 40px; color: #666; background: #fafafa; border-radius: 8px;">No SPOCs found. Use the form above to add new SPOCs.</div>';
+  } else {
+    html += `
+      <h5 style="margin-bottom: 15px; color: #2c3e50;">Existing SPOCs (${spocs.length} found) - Click Edit to modify</h5>
+      <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <thead>
+          <tr style="background: #34495e;">
+            <th style="padding: 15px; text-align: left; color: white;">Name</th>
+            <th style="padding: 15px; text-align: left; color: white;">Position</th>
+            <th style="padding: 15px; text-align: left; color: white;">Mobile</th>
+            <th style="padding: 15px; text-align: left; color: white;">Email</th>
+            <th style="padding: 15px; text-align: left; color: white;">Status</th>
+            <th style="padding: 15px; text-align: left; color: white;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+    
+    spocs.forEach((spoc, index) => {
+      const statusColor = spoc.status === 'Active' ? '#27ae60' : '#e74c3c';
+      html += `
+        <tr id="spoc-row-${index}" style="border-bottom: 1px solid #ecf0f1;">
+          <td style="padding: 15px; font-weight: 500;">${spoc.name || ''}</td>
+          <td style="padding: 15px;">${spoc.position || ''}</td>
+          <td style="padding: 15px;">${spoc.mobile || ''}</td>
+          <td style="padding: 15px;">${spoc.email || ''}</td>
+          <td style="padding: 15px;"><span style="color: ${statusColor}; font-weight: 600;">${spoc.status || 'Active'}</span></td>
+          <td style="padding: 15px;">
+            <button onclick="editSPOC(${index})" style="padding: 6px 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-right: 5px;">Edit</button>
+          </td>
+        </tr>
+        <tr id="spoc-edit-${index}" style="display: none; background: #f8f9fa;">
+          <td colspan="6" style="padding: 20px;">
+            <h6 style="margin-bottom: 15px; color: #2c3e50;">Edit SPOC: ${spoc.name || ''}</h6>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+              <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Name *</label>
+                <input type="text" id="editName-${index}" value="${spoc.name || ''}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+              </div>
+              <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Position *</label>
+                <input type="text" id="editPosition-${index}" value="${spoc.position || ''}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+              </div>
+              <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Mobile *</label>
+                <input type="text" id="editMobile-${index}" value="${spoc.mobile || ''}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+              </div>
+              <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Email *</label>
+                <input type="email" id="editEmail-${index}" value="${spoc.email || ''}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+              </div>
+              <div>
+                <label style="display: block; margin-bottom: 5px; font-weight: 600;">Status *</label>
+                <select id="editStatus-${index}" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                  <option value="Active" ${(spoc.status || 'Active') === 'Active' ? 'selected' : ''}>Active</option>
+                  <option value="Inactive" ${(spoc.status || 'Active') === 'Inactive' ? 'selected' : ''}>Inactive</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <button onclick="saveSPOC('${spoc.contact_id}', ${index})" style="padding: 8px 16px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px;">Save Changes</button>
+              <button onclick="cancelEdit(${index})" style="padding: 8px 16px; background: #95a5a6; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+            </div>
+            <div id="editMessage-${index}" style="margin-top: 10px; font-size: 14px; display: none;"></div>
+          </td>
+        </tr>
+      `;
+    });
+    
+    html += '</tbody></table>';
+  }
+
+  // Add JavaScript functions directly to window object
+  html += `
+    <script>
+      window.validateSPOCForm = function(name, position, mobile, email) {
+        const errors = [];
+        
+        if (!name || name.trim() === '') errors.push('Name is required');
+        if (!position || position.trim() === '') errors.push('Position is required');
+        if (!mobile || mobile.trim() === '') errors.push('Mobile is required');
+        if (!email || email.trim() === '') errors.push('Email is required');
+        
+        // Basic email validation
+        if (email && !email.includes('@')) errors.push('Please enter a valid email address');
+        
+        return errors;
+      }
+      
+      window.showMessage = function(elementId, message, isError = false) {
+        const messageDiv = document.getElementById(elementId);
+        if (messageDiv) {
+          messageDiv.innerHTML = message;
+          messageDiv.style.color = isError ? '#d32f2f' : '#27ae60';
+          messageDiv.style.display = 'block';
+          setTimeout(() => {
+            messageDiv.style.display = 'none';
+          }, 5000);
+        }
+      }
+      
+      window.addNewSPOC = function() {
+        const name = document.getElementById('spocName').value;
+        const position = document.getElementById('spocPosition').value;
+        const mobile = document.getElementById('spocMobile').value;
+        const email = document.getElementById('spocEmail').value;
+        const status = document.getElementById('spocStatus').value;
+        
+        // Validate all fields
+        const errors = window.validateSPOCForm(name, position, mobile, email);
+        if (errors.length > 0) {
+          window.showMessage('spocMessage', 'Please fix the following errors: ' + errors.join(', '), true);
+          return;
+        }
+        
+        const payload = {
+          name: name.trim(),
+          position: position.trim(),
+          mobile: mobile.trim(),
+          email: email.trim(),
+          status: status
+        };
+        
+        // Get group_id and company_id from the selected group/company
+        const companies = ${JSON.stringify(getCompanyList())};
+        
+        if ('${company_id}') {
+          // If company is selected, get its group_id
+          const company = companies.find(c => c.company_id === '${company_id}');
+          if (company) {
+            payload.company_id = '${company_id}';
+            payload.group_id = company.group_id || '';
+          }
+        } else if ('${group_name}') {
+          // If group is selected, get group_id and use first company in group
+          const companiesInGroup = companies.filter(c => c.group_name === '${group_name}');
+          if (companiesInGroup.length > 0) {
+            payload.group_id = companiesInGroup[0].group_id || '';
+            payload.company_id = companiesInGroup[0].company_id || '';
+          }
+        }
+        
+        window.saveNewSPOC(payload);
+      }
+      
+      window.saveNewSPOC = function(payload) {
+        google.script.run
+          .withSuccessHandler(function(result) {
+            window.showMessage('spocMessage', 'SPOC added successfully!', false);
+            // Clear form
+            document.getElementById('spocName').value = '';
+            document.getElementById('spocPosition').value = '';
+            document.getElementById('spocMobile').value = '';
+            document.getElementById('spocEmail').value = '';
+            document.getElementById('spocStatus').value = 'Active';
+            // Reload the SPOCs list
+            setTimeout(() => {
+              window.reloadCurrentTab();
+            }, 1000);
+          })
+          .withFailureHandler(function(error) {
+            window.showMessage('spocMessage', 'Error adding SPOC: ' + error.message, true);
+          })
+          .addOrUpdateSPOC(payload);
+      }
+      
+      window.editSPOC = function(index) {
+        // Hide all other edit forms
+        const allEditForms = document.querySelectorAll('[id^="spoc-edit-"]');
+        allEditForms.forEach(form => form.style.display = 'none');
+        
+        // Show this edit form
+        document.getElementById('spoc-edit-' + index).style.display = 'table-row';
+        
+        // Scroll to the edit form
+        document.getElementById('spoc-edit-' + index).scrollIntoView({ behavior: 'smooth' });
+      }
+      
+      window.cancelEdit = function(index) {
+        document.getElementById('spoc-edit-' + index).style.display = 'none';
+      }
+      
+      window.saveSPOC = function(contactId, index) {
+        const name = document.getElementById('editName-' + index).value;
+        const position = document.getElementById('editPosition-' + index).value;
+        const mobile = document.getElementById('editMobile-' + index).value;
+        const email = document.getElementById('editEmail-' + index).value;
+        const status = document.getElementById('editStatus-' + index).value;
+        
+        // Validate all fields
+        const errors = window.validateSPOCForm(name, position, mobile, email);
+        if (errors.length > 0) {
+          window.showMessage('editMessage-' + index, 'Please fix the following errors: ' + errors.join(', '), true);
+          return;
+        }
+        
+        const payload = {
+          contact_id: contactId,
+          name: name.trim(),
+          position: position.trim(),
+          mobile: mobile.trim(),
+          email: email.trim(),
+          status: status
+        };
+        
+        google.script.run
+          .withSuccessHandler(function(result) {
+            window.showMessage('editMessage-' + index, 'SPOC updated successfully!', false);
+            setTimeout(() => {
+              window.reloadCurrentTab();
+            }, 1000);
+          })
+          .withFailureHandler(function(error) {
+            window.showMessage('editMessage-' + index, 'Error updating SPOC: ' + error.message, true);
+          })
+          .addOrUpdateSPOC(payload);
+      }
+    </script>
+  `;
+  
+  return html;
+}
+
+function getManualHtml(company_id) {
+  if (!company_id) {
+    return '<div style="text-align: center; padding: 40px; color: #666;">Please select a company to manage manual data.</div>';
+  }
+  
+  const row = getManualRow(company_id) || {};
+  
+  // Helper function to format date for input field
+  const formatDateForInput = (dateString) => {
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return '';
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return year + '-' + month + '-' + day;
+    } catch (e) {
+      return '';
+    }
+  };
+
+  // Safe value extraction to avoid .replace errors
+  const safeValue = (value) => {
+    if (value === null || value === undefined) return '';
+    return String(value);
+  };
+
+  let html = '<h4>Manual Data Editor</h4>';
+  html += '<div style="max-width: 800px;">';
+  
+  // Editable table-like form
+  html += `
+    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">Contract Type *</label>
+          <input type="text" id="contract_type" value="${safeValue(row.contract_type)}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">LinkedIn Profile *</label>
+          <input type="text" id="linkedin_profile" value="${safeValue(row['Linked in profile'] || row.linkedin_profile)}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">Number of Sites *</label>
+          <input type="number" id="number_of_sites" value="${safeValue(row['Number of Sites'] || row.number_of_sites)}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">Eligible Headcount *</label>
+          <input type="number" id="eligible_headcount" value="${safeValue(row['Aligble Headcount'] || row.eligible_headcount)}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">Competition *</label>
+          <input type="text" id="competition" value="${safeValue(row.competition)}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+        </div>
+        <div>
+          <label style="display: block; margin-bottom: 5px; font-weight: 600;">Last Visit Date *</label>
+          <input type="date" id="last_visit_date" value="${formatDateForInput(row['Last visit date'] || row.last_visit_date)}" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" required>
+        </div>
+      </div>
+      
+      <div style="margin-bottom: 15px;">
+        <label style="display: block; margin-bottom: 5px; font-weight: 600;">Historical Comments</label>
+        <textarea id="historical_comments" readonly style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; height: 80px; background: #f5f5f5;">${safeValue(row['Historical Comments'] || row.historical_comments)}</textarea>
+      </div>
+      
+      <div style="margin-bottom: 15px;">
+        <label style="display: block; margin-bottom: 5px; font-weight: 600;">Add New Comment</label>
+        <textarea id="new_comment" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; height: 60px;" placeholder="Enter new comment here..."></textarea>
+      </div>
+      
+      <button onclick="submitManual()" style="padding: 10px 20px; background: #007cba; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Save Manual Data</button>
+      <div id="manualMessage" style="margin-top: 10px; font-size: 14px; display: none;"></div>
+    </div>
+  `;
+  
+  html += '</div>';
+  
+  html += `
+    <script>
+      let originalValues = {
+        contract_type: '${safeValue(row.contract_type).replace(/'/g, "\\'")}',
+        linkedin_profile: '${safeValue(row['Linked in profile'] || row.linkedin_profile).replace(/'/g, "\\'")}',
+        number_of_sites: '${safeValue(row['Number of Sites'] || row.number_of_sites).replace(/'/g, "\\'")}',
+        eligible_headcount: '${safeValue(row['Aligble Headcount'] || row.eligible_headcount).replace(/'/g, "\\'")}',
+        competition: '${safeValue(row.competition).replace(/'/g, "\\'")}',
+        last_visit_date: '${formatDateForInput(row['Last visit date'] || row.last_visit_date).replace(/'/g, "\\'")}',
+        historical_comments: '${safeValue(row['Historical Comments'] || row.historical_comments).replace(/'/g, "\\'")}'
+      };
+
+      function showManualMessage(message, isError = false) {
+        const messageDiv = document.getElementById('manualMessage');
+        if (messageDiv) {
+          messageDiv.innerHTML = message;
+          messageDiv.style.color = isError ? '#d32f2f' : '#27ae60';
+          messageDiv.style.display = 'block';
+          setTimeout(() => {
+            messageDiv.style.display = 'none';
+          }, 5000);
+        }
+      }
+
+      function submitManual() {
+        const contractType = document.getElementById('contract_type').value;
+        const linkedinProfile = document.getElementById('linkedin_profile').value;
+        const numberOfSites = document.getElementById('number_of_sites').value;
+        const eligibleHeadcount = document.getElementById('eligible_headcount').value;
+        const competition = document.getElementById('competition').value;
+        const lastVisitDate = document.getElementById('last_visit_date').value;
+        const newComment = document.getElementById('new_comment').value;
+        
+        const errors = [];
+        if (!contractType.trim()) errors.push('Contract Type is required');
+        if (!linkedinProfile.trim()) errors.push('LinkedIn Profile is required');
+        if (!numberOfSites.trim()) errors.push('Number of Sites is required');
+        if (!eligibleHeadcount.trim()) errors.push('Eligible Headcount is required');
+        if (!competition.trim()) errors.push('Competition is required');
+        if (!lastVisitDate.trim()) errors.push('Last Visit Date is required');
+        
+        if (errors.length > 0) {
+          showManualMessage('Please fix the following errors: ' + errors.join(', '), true);
+          return;
+        }
+        
+        // Check if any changes were made
+        const currentValues = {
+          contract_type: contractType,
+          linkedin_profile: linkedinProfile,
+          number_of_sites: numberOfSites,
+          eligible_headcount: eligibleHeadcount,
+          competition: competition,
+          last_visit_date: lastVisitDate
+        };
+        
+        let hasChanges = false;
+        for (const key in currentValues) {
+          if (currentValues[key] !== originalValues[key]) {
+            hasChanges = true;
+            break;
+          }
+        }
+        
+        // Check if there's a new comment
+        const hasNewComment = newComment.trim() !== '';
+        
+        if (!hasChanges && !hasNewComment) {
+          showManualMessage('No changes detected to save.', true);
+          return;
+        }
+        
+        const updates = currentValues;
+        
+        // Add new comment to historical comments if provided
+        if (hasNewComment) {
+          const currentHistoricalComments = document.getElementById('historical_comments').value;
+          const timestamp = new Date().toISOString().slice(0,19).replace('T',' ');
+          updates.historical_comments = (currentHistoricalComments + '\\n' + timestamp + ' - ' + newComment.trim()).trim();
+        }
+        
+        google.script.run
+          .withSuccessHandler(function(result) { 
+            if (result.status === 'no-changes') {
+              showManualMessage('No changes detected to save.', true);
+            } else {
+              showManualMessage('Manual data saved successfully!', false);
+              document.getElementById('new_comment').value = '';
+              // Update original values
+              originalValues = {...currentValues};
+              if (hasNewComment) {
+                originalValues.historical_comments = updates.historical_comments;
+              }
+              setTimeout(() => {
+                window.reloadCurrentTab();
+              }, 1000);
+            }
+          })
+          .withFailureHandler(function(error) {
+            showManualMessage('Error saving data: ' + error.message, true);
+          })
+          .upsertManual('${company_id}', updates);
+      }
+    </script>
+  `;
+  
+  return html;
+}
+
+function getGeneralHtml(company_id) {
+  if (!company_id) {
+    return '<div style="text-align: center; padding: 40px; color: #666;">Please select a company to perform general edits.</div>';
+  }
+  
+  // Get current data for pre-filling
+  const manualData = getManualRow(company_id) || {};
+  const jiraData = _readSheetAsObjects(JIRA_SHEET).find(r => String(r.company_id) === String(company_id)) || {};
+  
+  // Build a list of editable fields and map to sources with current values
+  const fields = [
+    {label:'KAM', key:'KAM', source:'jira', value: jiraData.KAM || ''},
+    {label:'FinOps', key:'finops', source:'jira', value: jiraData.finops || ''},
+    {label:'On Ground', key:'On ground', source:'jira', value: jiraData['On ground'] || ''},
+    {label:'KCS', key:'KCS', source:'jira', value: jiraData.KCS || ''},
+    {label:'LinkedIn Profile', key:'linkedin_profile', source:'manual', value: manualData['Linked in profile'] || manualData.linkedin_profile || ''},
+    {label:'Number of Sites', key:'number_of_sites', source:'manual', value: manualData['Number of Sites'] || manualData.number_of_sites || ''},
+    {label:'Eligible Headcount', key:'eligible_headcount', source:'manual', value: manualData['Aligble Headcount'] || manualData.eligible_headcount || ''},
+    {label:'Competition', key:'competition', source:'manual', value: manualData.competition || ''},
+    {label:'Last Visit Date', key:'last_visit_date', source:'manual', value: manualData['Last visit date'] || manualData.last_visit_date || ''},
+    {label:'Historical Comments', key:'Historical Comments', source:'manual', value: manualData['Historical Comments'] || manualData.historical_comments || ''}
+  ];
+  
+  let html = '<h4>General Field Editor</h4>';
+  html += '<div style="margin-bottom: 15px;">Select fields to edit (shows current values):</div>';
+  
+  // Create checkboxes for field selection with current values
+  html += '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">';
+  fields.forEach((f, idx) => {
+    const displayValue = f.value ? String(f.value).substring(0, 30) + (String(f.value).length > 30 ? '...' : '') : '(empty)';
+    html += `<div style="display: flex; align-items: center; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+      <input type="checkbox" id="fld${idx}" data-key="${f.key}" data-source="${f.source}" style="margin-right: 12px;">
+      <div>
+        <label for="fld${idx}" style="font-weight: 600; display: block;">${f.label}</label>
+        <div style="font-size: 12px; color: #666;">Current: ${displayValue}</div>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  
+  html += '<div id="generalEditFields"></div>';
+  html += `<div style="margin-top: 20px;">
+    <button onclick="showFields()" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; font-weight: 600;">Show Selected Fields for Editing</button> 
+    <button onclick="submitGeneral()" style="padding: 10px 20px; background: #007cba; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">Save All Changes</button>
+  </div>`;
+  html += '<div id="generalMessage" style="margin-top: 10px; font-size: 14px; display: none;"></div>';
+  
+  html += `
+    <script>
+      const fields = ${JSON.stringify(fields)};
+      
+      function showGeneralMessage(message, isError = false) {
+        const messageDiv = document.getElementById('generalMessage');
+        if (messageDiv) {
+          messageDiv.innerHTML = message;
+          messageDiv.style.color = isError ? '#d32f2f' : '#27ae60';
+          messageDiv.style.display = 'block';
+          setTimeout(() => {
+            messageDiv.style.display = 'none';
+          }, 5000);
+        }
+      }
+      
+      function showFields() {
+        const container = document.getElementById('generalEditFields');
+        container.innerHTML = '';
+        container.style.padding = '0';
+        container.style.background = 'transparent';
+        container.style.border = 'none';
+        
+        let hasSelection = false;
+        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+        
+        checkboxes.forEach((checkbox, idx) => {
+          if (checkbox.checked) {
+            hasSelection = true;
+          }
+        });
+        
+        if (!hasSelection) {
+          container.innerHTML = '<div style="color: #666; text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">Please select at least one field to edit</div>';
+          return;
+        }
+        
+        container.style.padding = '20px';
+        container.style.background = '#f8f9fa';
+        container.style.borderRadius = '8px';
+        container.style.border = '1px solid #e1e8ed';
+        
+        checkboxes.forEach((checkbox, idx) => {
+          if (checkbox.checked) {
+            const field = fields[idx];
+            if (!field) return;
+            
+            const inputType = field.key === 'last_visit_date' ? 'date' : 
+                             (field.key === 'number_of_sites' || field.key === 'eligible_headcount' ? 'number' : 'text');
+            const inputHeight = field.key === 'Historical Comments' ? '80px' : 'auto';
+            const inputElement = field.key === 'Historical Comments' ? 
+              '<textarea id="input_' + idx + '" style="width: 100%; max-width: 500px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; height: ' + inputHeight + ';" placeholder="Enter new value...">' + (field.value || '') + '</textarea>' :
+              '<input type="' + inputType + '" id="input_' + idx + '" value="' + (field.value || '') + '" style="width: 100%; max-width: 400px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;" placeholder="Enter new value...">';
+              
+            container.innerHTML += 
+              '<div style="margin-bottom:20px; padding: 15px; background: white; border-radius: 6px; border: 1px solid #e1e8ed;">' +
+                '<label style="display:block; margin-bottom:8px; font-weight:600; color: #2c3e50;">' + field.label + '</label>' +
+                inputElement +
+                '<div style="font-size: 12px; color: #666; margin-top: 5px;">Source: ' + field.source + '</div>' +
+              '</div>';
+          }
+        });
+      }
+      
+      function submitGeneral() {
+        const updatesBySource = {};
+        let hasSelectedFields = false;
+        
+        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+        checkboxes.forEach((checkbox, idx) => {
+          if (checkbox.checked) {
+            hasSelectedFields = true;
+            const field = fields[idx];
+            if (!field) return;
+            
+            const inputElement = document.getElementById('input_' + idx);
+            if (inputElement) {
+              const val = inputElement.value;
+              if (!updatesBySource[field.source]) updatesBySource[field.source] = {};
+              updatesBySource[field.source][field.key] = val;
+            }
+          }
+        });
+        
+        if (!hasSelectedFields) {
+          showGeneralMessage('Please select at least one field to save.', true);
+          return;
+        }
+        
+        const totalSaves = Object.keys(updatesBySource).length;
+        if (totalSaves === 0) {
+          showGeneralMessage('Please fill in the values for the selected fields.', true);
+          return;
+        }
+        
+        let saveCount = 0;
+        let hasErrors = false;
+        
+        Object.keys(updatesBySource).forEach(src => {
+          google.script.run
+            .withSuccessHandler(function() { 
+              saveCount++;
+              if (saveCount === totalSaves && !hasErrors) {
+                showGeneralMessage('All changes saved successfully!', false);
+                setTimeout(() => {
+                  window.reloadCurrentTab();
+                }, 1000);
+              }
+            })
+            .withFailureHandler(function(error) {
+              hasErrors = true;
+              showGeneralMessage('Error saving ' + src + ' fields: ' + error.message, true);
+            })
+            .updateMultipleFields('${company_id}', updatesBySource[src], src);
+        });
+      }
+    </script>
+  `;
+  
+  return html;
+}
